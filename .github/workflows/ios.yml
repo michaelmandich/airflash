@@ -1,0 +1,104 @@
+name: ios-compile-check
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'src/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'capacitor.config.*'
+      - 'package*.json'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'src/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'capacitor.config.*'
+      - 'package*.json'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner image (macos-26 default; macos-15 fallback)
+        type: choice
+        default: macos-26
+        options:
+          - macos-26
+          - macos-15
+
+# The job only checks out, builds and uploads a log; no secrets are used, so fork PRs are safe to build.
+permissions:
+  contents: read
+
+# block style: "${{" inside a flow mapping ({ ... }) is not valid YAML
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ github.event.inputs.runner || 'macos-26' }}   # macos-26 image: Xcode 26.6 default; macos-15 image: Xcode 16.4 default (too old) -> select 26.x below
+    timeout-minutes: 40
+    env:
+      SPM_DIR: build/SourcePackages
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+
+      - name: Select Xcode 26
+        run: |
+          if [ -d /Applications/Xcode_26.6.app ]; then sudo xcode-select -s /Applications/Xcode_26.6.app;
+          elif [ -d /Applications/Xcode_26.3.app ]; then sudo xcode-select -s /Applications/Xcode_26.3.app;   # macos-15 fallback
+          else ls /Applications | grep Xcode; exit 1; fi
+          xcodebuild -version
+
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1   # the desktop app is not built here; skip the ~100 MB download
+      - run: npm run build:mobile
+      - run: npx cap sync ios
+      - name: Sanity check generated package
+        # -F: a literal backslash; the BRE spelling '\' is rejected by some greps as a trailing backslash
+        run: grep -E 'iOS\(\.v1[5-9]\)' ios/App/CapApp-SPM/Package.swift && ! grep -qF '\' ios/App/CapApp-SPM/Package.swift
+
+      # CocoaPods is NOT used (SPM project). If a CocoaPods project is ever added:
+      # - run: cd ios/App && pod install   # and switch xcodebuild to -workspace App.xcworkspace
+
+      - name: Cache SwiftPM checkouts and DerivedData
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/SourcePackages
+            build/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/App/CapApp-SPM/Package.swift', 'package-lock.json') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath "$SPM_DIR"
+
+      - name: Build App (+ ShareExtension via target dependency), unsigned, device SDK
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -skipMacroValidation -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee build.log | grep -E 'error:|warning: .*(deprecat|unused)|\*\* BUILD' || true
+          grep -q 'BUILD SUCCEEDED' build.log
+
+      - name: Assert the extension was built and embedded
+        run: test -d build/DerivedData/Build/Products/Debug-iphoneos/App.app/PlugIns/ShareExtension.appex
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with: { name: xcodebuild-log, path: build.log }

@@ -1,0 +1,50 @@
+# Cloudflare Tunnel connector for AirFlash. Installed by install-connector.sh.
+#
+# Replaces the unit `cloudflared service install <TOKEN>` would write: that one
+# puts the token on the ExecStart line of a world-readable file. Here the token
+# lives only in /etc/cloudflared/tunnel-token.env (root, 0600), which systemd
+# reads as root before dropping to a dynamic user. cloudflared honours
+# TUNNEL_TOKEN from the environment, so no --token argument is needed.
+#
+# Outbound only: cloudflared dials Cloudflare on 7844 (QUIC/udp, tcp fallback)
+# and 443. Nothing listens except the metrics endpoint on 127.0.0.1:20241,
+# which verify.sh reads (/ready) to prove the tunnel is connected.
+[Unit]
+Description=Cloudflare Tunnel connector for AirFlash (public hostname -> 127.0.0.1:4747)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/cloudflared/tunnel-token.env
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --metrics 127.0.0.1:20241 run
+Restart=always
+RestartSec=5s
+
+# Hardening. DynamicUser implies ProtectSystem=strict, ProtectHome=read-only,
+# PrivateTmp and RemoveIPC; the rest is stated explicitly.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

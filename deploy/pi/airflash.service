@@ -1,0 +1,58 @@
+[Unit]
+Description=AirFlash relay node (loopback only; published through cloudflared)
+Documentation=file:///opt/airflash/deploy/pi/README.md
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/airflash
+
+[Service]
+Type=simple
+User=airflash
+Group=airflash
+# Host, port, name and allowed hostnames come from this file (bin/airflash.js
+# reads the AIRFLASH_* variables). AIRFLASH_HOST must stay 127.0.0.1 behind a
+# tunnel: a wider bind would expose the node to every host on its network segment.
+EnvironmentFile=/etc/airflash/airflash.env
+WorkingDirectory=/opt/airflash
+# AIRFLASH_FLAGS is --no-discovery behind a tunnel (no mDNS announcement or peer
+# polling) and empty for a plain LAN node. Unquoted $VAR word-splits.
+ExecStart=/usr/bin/node /opt/airflash/bin/airflash.js --data ${AIRFLASH_DATA} $AIRFLASH_FLAGS
+# Drops are temporary by design: every start begins with an empty store. The
+# path is written out in full because systemd, not the shell, expands ${...}
+# here, and an unknown variable would silently become "".
+ExecStartPre=/bin/rm -rf /var/lib/airflash/drops
+Restart=always
+RestartSec=3s
+# A configuration error (bad flag, unreadable access key) exits 78 and must
+# not restart-loop; fix the env file, then `systemctl restart airflash`.
+RestartPreventExitStatus=78
+UMask=0077
+
+# Hardening. MemoryDenyWriteExecute stays off: V8's JIT needs W+X pages.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/airflash
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+# AF_NETLINK: os.networkInterfaces() (getifaddrs) needs it; without it
+# /api/node would answer 500.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

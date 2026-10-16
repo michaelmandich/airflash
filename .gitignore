@@ -1,0 +1,21 @@
+node_modules/
+/dist/
+.airflash-data/
+*.log
+www/
+build.log
+
+# Live deployment values (addresses, hostnames, domain). Never tracked.
+deploy/pi/local.md
+deploy/pi/local/
+
+# Secrets and signing material. Never tracked.
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+access.key

@@ -1,0 +1,16 @@
+{
+  "appId": "app.airflash.ios",
+  "appName": "AirFlash",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "CapacitorShareTarget": {
+      "appGroupId": "group.app.airflash.ios"
+    },
+    "LocalNotifications": {
+      "presentationOptions": ["banner", "list", "sound"]
+    }
+  }
+}

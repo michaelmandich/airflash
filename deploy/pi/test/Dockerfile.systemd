@@ -1,0 +1,12 @@
+# A Debian image that boots systemd as PID 1, to test the real units:
+# airflash.service and its hardening, install.sh's systemd-run detach, the
+# tmpfs mount unit, update.sh's restart and cloudflared.service's sandbox.
+# Built and run by run-systemd-test.sh (needs --privileged).
+ARG BASE=debian:bookworm
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus ca-certificates \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
